@@ -1,226 +1,144 @@
-/**
- * @title Create a Meteora DLMM Pool on Solana Devnet
- * @description This script demonstrates the full process of creating a new Meteora DLMM
- * liquidity pool. It includes:
- * 1. Setting up a connection to the Solana devnet.
- * 2. Creating a new SPL token to be used as the base currency in the pool.
- * 3. Using an existing token (USDC devnet) as the quote currency.
- * 4. Initializing the DLMM pool (LB Pair).
- * 5. Creating a position and depositing initial liquidity into the pool.
- *
- * @notice This script is for demonstration purposes on the devnet.
- * Running this on mainnet requires real funds and careful parameter selection.
- *
- * @dev To run this script:
- * 1. Make sure you have Node.js and npm installed.
- * 2. Install the required packages:
- * npm install @solana/web3.js @solana/spl-token @meteora-ag/dlmm bn.js bs58
- * 3. Replace the `PRIVATE_KEY` placeholder with your wallet's private key (in base58 format).
- * Your wallet must have some devnet SOL to pay for transaction fees.
- * You can get devnet SOL from a faucet: https://faucet.solana.com/
- * 4. Run the script from your terminal:
- * node your_script_name.js
- */
+import { Connection, Keypair, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { AnchorProvider, Wallet } from '@coral-xyz/anchor';
+import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
+import DLMM from '@meteora-ag/dlmm'; // Correct default import for the main DLMM object
+import { BN } from 'bn.js'; // BN.js for large number arithmetic
+import bs58 from 'bs58'; // For encoding/decoding private keys (optional, but useful)
 
-import {
-    Connection,
-    Keypair,
-    PublicKey,
-    sendAndConfirmTransaction,
-    SystemProgram,
-    Transaction,
-} from '@solana/web3.js';
-import {
-    createMint,
-    createAssociatedTokenAccount,
-    mintTo,
-    getAssociatedTokenAddress,
-} from '@solana/spl-token';
-import { DLMM, LbPair, getBinStep, MAINNET_PROGRAM_ID } from '@meteora-ag/dlmm';
-import BN from 'bn.js';
-import bs58 from 'bs58';
+// --- Configuration ---
+const RPC_URL = 'https://api.devnet.solana.com'; // Use devnet for testing
+// Replace with your actual private key (NEVER hardcode in production!)
+// For example, load from a file or environment variable
+const PRIVATE_KEY = 'mtaSwRYTpiqAHNauXmwLBns4gq8MeLxsoYE1F6trpLVvZC31dpecztnKh4BD3L1iLFNcZeujTSZn3bggPFqWYDd';
 
-// --- CONFIGURATION ---
+const CONNECTION = new Connection(RPC_URL, 'confirmed');
+const WALLET = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY));
+const PROVIDER = new AnchorProvider(CONNECTION, WALLET, {
+    preflightCommitment: 'confirmed',
+});
 
-// Replace with your wallet's private key (base58 encoded).
-// IMPORTANT: Keep this secret. Do not commit it to public repositories.
-// This is a dummy keypair for demonstration.
-const PRIVATE_KEY = 'YOUR_PRIVATE_KEY_HERE'; // e.g., '588FU4PktJWfGfxtzpAAXkuE6YDXv1VofGJod4YocqvP...'
-const DEVNET_RPC_URL = 'https://api.devnet.solana.com';
+// --- Pool Parameters ---
+// These are example mints. You would typically create your own or use existing ones.
+const TOKEN_MINT_A = new PublicKey('So11111111111111111111111111111111111111112'); // Replace with your Token A Mint Address
+const TOKEN_MINT_B = new PublicKey('FhEGXjQwBJVGdHRdmd3jp1eYdxhRdzGNq9TNvWZFMGLC'); // Replace with your Token B Mint Address
 
-// The program ID for Meteora DLMM on Devnet.
-// Note: The SDK might export a DEVNET_PROGRAM_ID, but we define it here for clarity.
-const DLMM_PROGRAM_ID = new PublicKey('LBUZKhRxPF3XUpBCjp4Q4y4Jo2aZConoA2dKkGRqsA6');
+// Example: 10000 = 10% bin step. Adjust as needed.
+const BIN_STEP = 10000; // Price increment/decrement percentage in basis points (e.g., 100 = 1% price step)
+const FEE_BPS = 2; // Trading fee in basis points (e.g., 200 = 2% fee per swap)
+const INITIAL_PRICE = 0.0000001; // Initial price (in terms of tokenB / tokenA)
+const ACTIVATION_TYPE = 1; // 0 - Slot | 1 - Timestamp (unix seconds)
+// Set activation_slot and activation_timestamp based on activation_type
+const ACTIVATION_SLOT_OR_TIMESTAMP = Math.floor(Date.now() / 1000) + 60; // 60 seconds from now if type is timestamp
 
-// Use USDC on devnet as the quote token.
-const QUOTE_TOKEN_MINT = new PublicKey('Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr');
-const QUOTE_TOKEN_DECIMALS = 6;
+// --- Function to Create DLMM Pool ---
+async function createMeteoraDlmmPool() {
+    try {
+        console.log('Admin Public Key:', WALLET.publicKey.toBase58());
 
-// --- MAIN SCRIPT ---
-
-async function main() {
-    console.log('🚀 Starting Meteora pool creation script...');
-
-    // 1. Setup Connection and Wallet
-    // =================================================
-    const connection = new Connection(DEVNET_RPC_URL, 'confirmed');
-
-    let wallet;
-    if (!PRIVATE_KEY || PRIVATE_KEY === 'YOUR_PRIVATE_KEY_HERE') {
-        console.warn('⚠️ Private key not found. Generating a new temporary wallet.');
-        wallet = Keypair.generate();
-        console.log('Airdropping 2 SOL to new wallet. This might take a moment...');
-        const airdropSignature = await connection.requestAirdrop(wallet.publicKey, 2 * 1e9);
-        await connection.confirmTransaction(airdropSignature, 'confirmed');
-        console.log(`✅ Airdrop successful. Wallet address: ${wallet.publicKey.toBase58()}`);
-    } else {
-        try {
-            wallet = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY));
-            console.log(`✅ Wallet loaded successfully: ${wallet.publicKey.toBase58()}`);
-        } catch (error) {
-            console.error('❌ Invalid private key. Please check the format (base58).');
+        // Ensure the wallet has SOL for transaction fees
+        const balance = await CONNECTION.getBalance(WALLET.publicKey);
+        console.log('Admin SOL Balance:', balance / 1e9, 'SOL');
+        if (balance < 0.05 * 1e9) { // Check if balance is sufficient (e.g., 0.05 SOL)
+            console.warn('Insufficient SOL balance for transactions. Please fund your wallet.');
             return;
         }
-    }
 
-
-    // 2. Create a New SPL Token (Base Token)
-    // =================================================
-    console.log('\n- Creating a new SPL token to use as the base currency...');
-    const baseTokenMint = await createMint(
-        connection,
-        wallet, // Payer
-        wallet.publicKey, // Mint Authority
-        wallet.publicKey, // Freeze Authority
-        9 // Decimals
-    );
-    console.log(`✅ Base Token Mint Address: ${baseTokenMint.toBase58()}`);
-
-    // Create ATAs (Associated Token Accounts) for the new token and mint some to our wallet
-    const baseTokenAta = await createAssociatedTokenAccount(connection, wallet, baseTokenMint, wallet.publicKey);
-    const mintAmount = new BN(1_000_000).mul(new BN(10).pow(new BN(9))); // 1,000,000 tokens
-    await mintTo(connection, wallet, baseTokenMint, baseTokenAta, wallet, BigInt(mintAmount.toString()));
-    console.log(`✅ Minted 1,000,000 base tokens to wallet.`);
-
-
-    // 3. Initialize the DLMM Pool (LB Pair)
-    // =================================================
-    console.log('\n- Initializing the DLMM pool (LbPair)...');
-
-    // Define pool parameters
-    const binStep = 10; // A common value, represents price tick granularity.
-    const initialPrice = new BN(1 * 10 ** (QUOTE_TOKEN_DECIMALS)); // Initial price of 1 USDC per base token
-
-    // Find the PDA for the LbPair
-    const lbPairPda = LbPair.getPDA(DLMM_PROGRAM_ID, baseTokenMint, QUOTE_TOKEN_MINT, binStep);
-    const lbPairKey = lbPairPda.publicKey;
-    console.log(`Computed LbPair Address: ${lbPairKey.toBase58()}`);
-
-    // Create the instruction to initialize the pool
-    const dlmmPool = new DLMM(connection, DLMM_PROGRAM_ID);
-    const createPoolIx = await dlmmPool.createLbPair(
-        wallet.publicKey, // Payer
-        baseTokenMint,
-        QUOTE_TOKEN_MINT,
-        initialPrice,
-        binStep
-    );
-
-    // Create and send the transaction
-    const createPoolTx = new Transaction().add(createPoolIx);
-    try {
-        const txSignature = await sendAndConfirmTransaction(connection, createPoolTx, [wallet]);
-        console.log(`✅ Pool creation transaction successful! Signature: ${txSignature}`);
-    } catch (error) {
-        console.error('❌ Pool creation failed:', error);
-        return;
-    }
-
-
-    // 4. Add Initial Liquidity
-    // =================================================
-    console.log('\n- Adding initial liquidity to the pool...');
-
-    // We need ATAs for both tokens for the pool to use.
-    const baseTokenVault = await getAssociatedTokenAddress(baseTokenMint, lbPairKey, true);
-    const quoteTokenVault = await getAssociatedTokenAddress(QUOTE_TOKEN_MINT, lbPairKey, true);
-    console.log(`Base vault: ${baseTokenVault.toBase58()}, Quote vault: ${quoteTokenVault.toBase58()}`);
-
-    // Define the liquidity shape and amount
-    const liquidityParameters = {
-        // Amount of each token to deposit
-        amountX: new BN(100_000).mul(new BN(10).pow(new BN(9))), // 100,000 base tokens
-        amountY: new BN(100_000).mul(new BN(10).pow(new BN(QUOTE_TOKEN_DECIMALS))), // 100,000 quote tokens (USDC)
-        // Define the price range for the liquidity.
-        // We will provide liquidity in a range of 5 bins on each side of the active price.
-        activeId: createPoolIx.program.coder.instruction.accounts.length, // This needs to be correctly identified from the created pool state
-        binDistributionX: Array(11).fill(new BN(0)).map((_, i) => i < 5 ? new BN(10) : new BN(0)), // Example distribution
-        binDistributionY: Array(11).fill(new BN(0)).map((_, i) => i > 5 ? new BN(10) : new BN(0)), // Example distribution
-    };
-
-    // Note: A real-world scenario requires fetching the `activeId` from the created pool's on-chain state.
-    // For this script, we proceed with a simplified deposit. A more robust implementation would fetch the LbPair account data first.
-    // The `initializePositionAndDeposit` is a more advanced method. A simpler approach is to use `deposit`.
-
-    // Let's create a position and deposit liquidity.
-    // For simplicity, we'll deposit into a few bins around the initial price.
-    const lbPairState = await LbPair.fetch(connection, lbPairKey);
-    if (!lbPairState) {
-        console.error("❌ Could not fetch the new pool's state.");
-        return;
-    }
-
-    const positionPda = dlmmPool.getPositionPda(wallet.publicKey, lbPairKey);
-    console.log(`Position PDA: ${positionPda.publicKey.toBase58()}`);
-
-    const depositAmountX = new BN(10000 * 10 ** 9); // 10,000 base tokens
-    const depositAmountY = new BN(0); // We'll deposit only base tokens first
-
-    const depositTx = new Transaction();
-    
-    // Check if position exists, if not, add instruction to create it
-    const positionAccount = await connection.getAccountInfo(positionPda.publicKey);
-    if (!positionAccount) {
-        console.log("Position not found, creating it...");
-        const createPositionIx = await dlmmPool.initializePosition(
-            positionPda.publicKey,
-            lbPairKey,
-            wallet.publicKey,
-            -128, // Lower bin id
-            128, // Width
+        // --- Get Preset Parameters ---
+        // Meteora provides preset parameters for pool creation.
+        // It's recommended to use these to ensure valid pool configurations.
+        const presetParameters = await DLMM.getAllPresetParameters(CONNECTION);
+        if (!presetParameters || presetParameters.length === 0) {
+            console.error("Failed to retrieve preset parameters. Cannot create pool.");
+            return;
+        }
+        // For simplicity, we'll just use the first preset parameter.
+        // In a real application, you'd choose one based on your specific requirements (e.g., binStep).
+        const selectedPreset = presetParameters.find(
+            (p) => p.binStep === BIN_STEP && p.feeBps === FEE_BPS
         );
-        depositTx.add(createPositionIx);
-    }
 
-    const depositIx = await dlmmPool.deposit(
-        lbPairKey,
-        positionPda.publicKey,
-        depositAmountX,
-        depositAmountY,
-        new BN(lbPairState.activeId), // Deposit around the active bin
-        wallet.publicKey,
-        baseTokenAta,
-        await getAssociatedTokenAddress(QUOTE_TOKEN_MINT, wallet.publicKey)
-    );
-    
-    depositTx.add(depositIx);
+        if (!selectedPreset) {
+            console.error(`No suitable preset found for binStep: ${BIN_STEP} and feeBps: ${FEE_BPS}. 
+                           Consider adjusting your pool parameters or checking available presets.`);
+            return;
+        }
 
-    try {
-        const depositSignature = await sendAndConfirmTransaction(connection, depositTx, [wallet]);
-        console.log(`✅ Liquidity deposit transaction successful! Signature: ${depositSignature}`);
+        console.log("Selected Preset Parameters:", selectedPreset);
+
+        // --- Prepare DLMM Pool Creation Parameters ---
+        // `createPermissionLbPair` expects `LbPairConfig` and `InitializeLbPairParams`
+        const lbPairConfig = {
+            owner: ADMIN_KEYPAIR.publicKey,
+            tokenMintX: TOKEN_MINT_A,
+            tokenMintY: TOKEN_MINT_B,
+            binStep: BIN_STEP,
+            // These values would come from `selectedPreset` or be carefully chosen
+            // Example values:
+            baseFactor: selectedPreset.baseFactor, // Typically from preset
+            minBinId: selectedPreset.minBinId,     // Typically from preset
+            maxBinId: selectedPreset.maxBinId,     // Typically from preset
+            feeBps: FEE_BPS,
+            // You may need to specify more fields from the preset config or Meteora docs
+        };
+
+        const initializeLbPairParams = {
+            initialPrice: new BN(INITIAL_PRICE * 1e9), // Example: Price 1.0, assuming 9 decimals for price
+            // Activation settings
+            activationSlot: ACTIVATION_TYPE === 0 ? new BN(ACTIVATION_SLOT_OR_TIMESTAMP) : null,
+            activationTime: ACTIVATION_TYPE === 1 ? new BN(ACTIVATION_SLOT_OR_TIMESTAMP) : null,
+            // Other optional parameters like `feeOwner`, `positionOwner`, `oracle` can be added
+        };
+
+        console.log('Attempting to create DLMM pool...');
+
+        // The createPermissionLbPair function will return a Transaction
+        // The `DLMM` object needs to be initialized.
+        // The `DLMM` object from `@meteora-ag/dlmm` seems to be the main SDK class.
+        // Let's assume `createPermissionLbPair` is a static method or exposed through the default export.
+        // Based on search results, `createPermissionLbPair` is a static function of the DLMM export.
+        const createPoolTx = await DLMM.createPermissionLbPair(
+            CONNECTION,
+            WALLET.publicKey, // Payer
+            lbPairConfig.tokenMintX,
+            lbPairConfig.tokenMintY,
+            lbPairConfig.binStep,
+            initializeLbPairParams.initialPrice,
+            lbPairConfig.baseFactor, // Ensure this is correctly retrieved from preset
+            initializeLbPairParams.activationSlot,
+            initializeLbPairParams.activationTime,
+            // feeBps is part of lbPairConfig, but might be a direct parameter for createPermissionLbPair
+            lbPairConfig.feeBps,
+            WALLET.publicKey, // Fee owner
+            WALLET.publicKey, // Position owner
+            CONNECTION // Pass connection for internal use
+        );
+
+        if (!createPoolTx) {
+            console.error("Failed to generate pool creation transaction.");
+            return;
+        }
+
+        // Sign and send the transaction
+        const txid = await PROVIDER.sendAndConfirm(createPoolTx, [ADMIN_KEYPAIR]);
+        console.log('DLMM Pool creation transaction sent. TXID:', txid);
+        console.log('DLMM Pool creation successful!');
+
+        // You might need to derive the pool address (LbPair PDA) after creation
+        // The LbPair.getPDA function does not seem to be directly available.
+        // Instead, the `createPermissionLbPair` might return the pool address or it can be derived.
+        // Let's assume the transaction log will contain the pool address, or the SDK provides a way to derive it.
+        // For now, we'll just confirm the transaction.
+        console.log("Monitor the transaction for the new pool address.");
+
     } catch (error) {
-        console.error('❌ Liquidity deposit failed:', error);
-        // This can happen if you don't have enough quote tokens (USDC) on devnet.
-        // Use a devnet USDC faucet to get some.
-        return;
+        console.error('Error creating DLMM pool:', error);
+        // Provide more detailed error logging
+        if (error instanceof Error) {
+            console.error('Error message:', error.message);
+            console.error('Stack trace:', error.stack);
+        }
     }
-
-    console.log('\n🎉 Congratulations! Your Meteora DLMM pool has been created and funded.');
-    console.log(`   - Pool Address: ${lbPairKey.toBase58()}`);
-    console.log(`   - Base Token: ${baseTokenMint.toBase58()}`);
-    console.log(`   - Quote Token: ${QUOTE_TOKEN_MINT.toBase58()}`);
 }
 
-main().catch((err) => {
-    console.error(err);
-});
+// --- Run the function ---
+createMeteoraDlmmPool();
