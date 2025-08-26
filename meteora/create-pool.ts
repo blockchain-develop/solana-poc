@@ -5,8 +5,7 @@ import DLMM, {derivePresetParameter2, LBCLMM_PROGRAM_IDS } from '@meteora-ag/dlm
 //import { BN } from 'bn.js'; // BN.js for large number arithmetic
 import bs58 from 'bs58'; // For encoding/decoding private keys (optional, but useful)
 
-import pkg from '@coral-xyz/anchor';
-const { AnchorProvider, BN, Wallet } = pkg;
+import { AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
 
 //import dlmm from '@meteora-ag/dlmm';
 //const { DLMM } = dlmm;
