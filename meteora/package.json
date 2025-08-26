@@ -9,8 +9,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
+
   "devDependencies": {
+    "@types/bs58": "^4.0.4",
     "@types/node": "^24.3.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
