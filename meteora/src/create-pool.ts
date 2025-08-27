@@ -1,17 +1,9 @@
 import { Connection, Keypair, PublicKey, clusterApiUrl, Transaction, SystemProgram } from '@solana/web3.js';
 //import { AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
 import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
-import DLMM, {derivePresetParameter2, LBCLMM_PROGRAM_IDS } from '@meteora-ag/dlmm'; // Correct default import for the main DLMM object
-//import { BN } from 'bn.js'; // BN.js for large number arithmetic
+import DLMM, { derivePresetParameter2, LBCLMM_PROGRAM_IDS } from '@meteora-ag/dlmm'; // Correct default import for the main DLMM object
 import bs58 from 'bs58'; // For encoding/decoding private keys (optional, but useful)
-
 import { AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
-
-//import dlmm from '@meteora-ag/dlmm';
-//const { DLMM } = dlmm;
-
-//import xx from '@meteora-ag/dlmm';
-//const {DLMM, derivePresetParameter2, LBCLMM_PROGRAM_IDS } = pkg;
 
 // --- Configuration ---
 const RPC_URL = 'https://api.devnet.solana.com'; // Use devnet for testing
@@ -34,8 +26,8 @@ const TOKEN_MINT_B = new PublicKey('FhEGXjQwBJVGdHRdmd3jp1eYdxhRdzGNq9TNvWZFMGLC
 const DECIMALS_B = 9;
 
 // Example: 10000 = 10% bin step. Adjust as needed.
-const BIN_STEP = 10000; // Price increment/decrement percentage in basis points (e.g., 100 = 1% price step)
-const FEE_BPS = 2; // Trading fee in basis points (e.g., 200 = 2% fee per swap)
+const BIN_STEP = 10; // Price increment/decrement percentage in basis points (e.g., 100 = 1% price step)
+const FEE_BPS = 10000; // Trading fee in basis points (e.g., 200 = 2% fee per swap)
 const INITIAL_PRICE = 0.0000001; // Initial price (in terms of tokenB / tokenA)
 const ACTIVATION_TYPE = 1; // 0 - Slot | 1 - Timestamp (unix seconds)
 // Set activation_slot and activation_timestamp based on activation_type
@@ -47,7 +39,6 @@ function getActiveBin() {
 
     // The core logarithmic calculation
     const activeBinId = Math.floor(Math.log(priceWithDecimals) / Math.log(1 + binStepPercent));
-
     console.log(`Calculated active bin ID: ${activeBinId}`);
 
     return activeBinId;
@@ -74,75 +65,29 @@ async function createMeteoraDlmmPool() {
             console.error("Failed to retrieve preset parameters. Cannot create pool.");
             return;
         }
+        //console.log(JSON.stringify(presetParameters, null, 2))
         // For simplicity, we'll just use the first preset parameter.
         // In a real application, you'd choose one based on your specific requirements (e.g., binStep).
-        const selectedPreset = presetParameters.presetParameter.find(
-            (p) => p.account.binStep === BIN_STEP// && p.account.feeBps === FEE_BPS
+        const selectedPreset = presetParameters.presetParameter2.find(
+            (p) => p.account.binStep === BIN_STEP && p.account.baseFactor === FEE_BPS
         );
-
         if (!selectedPreset) {
             console.error(`No suitable preset found for binStep: ${BIN_STEP} and feeBps: ${FEE_BPS}. 
                            Consider adjusting your pool parameters or checking available presets.`);
             return;
         }
-
         console.log("Selected Preset Parameters:", selectedPreset);
 
-        // --- Prepare DLMM Pool Creation Parameters ---
-        // `createPermissionLbPair` expects `LbPairConfig` and `InitializeLbPairParams`
-        const lbPairConfig = {
-            owner: WALLET.publicKey,
-            tokenMintX: TOKEN_MINT_A,
-            tokenMintY: TOKEN_MINT_B,
-            binStep: BIN_STEP,
-            // These values would come from `selectedPreset` or be carefully chosen
-            // Example values:
-            baseFactor: selectedPreset.account.baseFactor, // Typically from preset
-            minBinId: selectedPreset.account.minBinId,     // Typically from preset
-            maxBinId: selectedPreset.account.maxBinId,     // Typically from preset
-            feeBps: FEE_BPS,
-            // You may need to specify more fields from the preset config or Meteora docs
-        };
-
-        /*
-        const initializeLbPairParams = {
-            initialPrice: new BN(INITIAL_PRICE * 1e9), // Example: Price 1.0, assuming 9 decimals for price
-            // Activation settings
-            activationSlot: ACTIVATION_TYPE === 0 ? new BN(ACTIVATION_SLOT_OR_TIMESTAMP) : null,
-            activationTime: ACTIVATION_TYPE === 1 ? new BN(ACTIVATION_SLOT_OR_TIMESTAMP) : null,
-            // Other optional parameters like `feeOwner`, `positionOwner`, `oracle` can be added
-        };
-
-        console.log('Attempting to create DLMM pool...');
-*/
-
-        // The createPermissionLbPair function will return a Transaction
-        // The `DLMM` object needs to be initialized.
-        // The `DLMM` object from `@meteora-ag/dlmm` seems to be the main SDK class.
-        // Let's assume `createPermissionLbPair` is a static method or exposed through the default export.
-        // Based on search results, `createPermissionLbPair` is a static function of the DLMM export.
-
-        const binStep = new BN(25)
-        const baseFactor = new BN(10000)
-        const programId = LBCLMM_PROGRAM_IDS["mainnet-beta"]
-
-        const presetParamPda = derivePresetParameter2(
-            binStep,
-            baseFactor,
-            new PublicKey(programId),
-        );
-
-        const activeBinId = getActiveBin();
-
+        // const activeBinId = DLMM.getBinIdFromPrice(INITIAL_PRICE, BIN_STEP,true)
+        const activeBinId = getActiveBin()
         const createPoolTx = await DLMM.createLbPair2(
             CONNECTION,
             WALLET.publicKey, // Payer
-            lbPairConfig.tokenMintX,
-            lbPairConfig.tokenMintY,
+            TOKEN_MINT_A,
+            TOKEN_MINT_B,
             selectedPreset.publicKey,
             new BN(activeBinId),
         );
-
         if (!createPoolTx) {
             console.error("Failed to generate pool creation transaction.");
             return;

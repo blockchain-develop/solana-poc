@@ -10,7 +10,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-
   "devDependencies": {
     "@types/bs58": "^4.0.4",
     "@types/node": "^24.3.0",
