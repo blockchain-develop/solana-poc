@@ -25,7 +25,6 @@ const PROVIDER = new AnchorProvider(CONNECTION, WALLET, {
     preflightCommitment: 'confirmed',
 });
 
-// --- Function to Create DLMM Pool ---
 async function createtoken() {
     const mintKey = Keypair.generate();
     // 创建token
