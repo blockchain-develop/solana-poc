@@ -1,7 +1,6 @@
-import { Connection, Keypair, PublicKey, clusterApiUrl } from '@solana/web3.js';
-import { createMint, mintTo, createAssociatedTokenAccount } from '@solana/spl-token';
+import { Connection, Keypair, PublicKey, clusterApiUrl, Cluster } from '@solana/web3.js';
+import { createMint } from '@solana/spl-token';
 import bs58 from 'bs58';
-import { AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
 import {
     signerIdentity,
     createGenericFile,
@@ -16,45 +15,35 @@ import {
 import { bundlrUploader } from "@metaplex-foundation/umi-uploader-bundlr";
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults'
 import * as fs from "fs";
+import { conf } from "./const";
 
-const CONNECTION = new Connection(clusterApiUrl("devnet"), 'confirmed');
-const PRIVATE_KEY = 'mtaSwRYTpiqAHNauXmwLBns4gq8MeLxsoYE1F6trpLVvZC31dpecztnKh4BD3L1iLFNcZeujTSZn3bggPFqWYDd';
-const PAYER = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY));
-const WALLET = new Wallet(PAYER);
-const PROVIDER = new AnchorProvider(CONNECTION, WALLET, {
-    preflightCommitment: 'confirmed',
-});
+const CONNECTION = new Connection(clusterApiUrl(conf.Network as Cluster), 'confirmed');
+const owner = conf.Owner;
 
 async function createtoken() {
     const mintKey = Keypair.generate();
+    console.log(`mint key: ${bs58.encode(mintKey.secretKey)}`)
     // 创建token
     const baseTokenMint = await createMint(
         CONNECTION,
-        PAYER,
-        WALLET.publicKey,
-        WALLET.publicKey,
+        owner,
+        owner.publicKey,
+        owner.publicKey,
         9,
         mintKey,
     );
     console.log(`✅ Base Token Mint Address: ${baseTokenMint.toBase58()}`);
 
-    // ATA
-    const baseTokenAta = await createAssociatedTokenAccount(CONNECTION, PAYER, baseTokenMint, WALLET.publicKey);
-
-    // mint
-    const mintAmount = new BN(1_000_000_000).mul(new BN(10).pow(new BN(9)));
-    await mintTo(CONNECTION, PAYER, baseTokenMint, baseTokenAta, PAYER, BigInt(mintAmount.toString()));
-    console.log(`✅ Minted 1,000,000 base tokens to wallet.`);
-
     // Create Umi instance and configure with Bundlr
-    const umi = createUmi(clusterApiUrl("devnet"))
+    const umi = createUmi(clusterApiUrl(conf.Network as Cluster))
         .use(mplTokenMetadata())
         .use(bundlrUploader())
-    let keypair = umi.eddsa.createKeypairFromSecretKey(bs58.decode(PRIVATE_KEY));
-    const signer = createSignerFromKeypair(umi, keypair);
-    umi.use(signerIdentity(signer));
-    let mintKeyPair = umi.eddsa.createKeypairFromSecretKey(mintKey.secretKey)
-    const mintSigner = createSignerFromKeypair(umi, mintKeyPair);
+    let ownerKeypair = umi.eddsa.createKeypairFromSecretKey(owner.secretKey);
+    const ownerSigner = createSignerFromKeypair(umi, ownerKeypair);
+    umi.use(signerIdentity(ownerSigner));
+
+    let mintKeypair = umi.eddsa.createKeypairFromSecretKey(mintKey.secretKey)
+    const mintSigner = createSignerFromKeypair(umi, mintKeypair);
 
     // Create a placeholder image
     const image = fs.readFileSync("./src/image.png");
@@ -89,7 +78,7 @@ async function createtoken() {
         const metadataUri = await umi.uploader.uploadJson([metadataJson]);
         console.log(`Metadata uploaded to Arweave at: ${metadataUri}`);
 
-        // 3. 
+        // 3. create metadata
         await createV1(
             umi,
             {
