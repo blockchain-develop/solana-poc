@@ -28,29 +28,53 @@ async function addLiqudity() {
 
         // Define the swap parameters
         const amountIn = new BN(1000000); // Swapping 1 unit of the input token
-        
-        // Calculate the expected amount out and set a slippage tolerance
-        // You can use a library or a helper function to calculate the expected amount out.
-        // Here, we'll assume an estimated amount and apply a 5% slippage.
-        const estimatedAmountOut = new BN(5000000); // This should be calculated programmatically
-        const minAmountOut = estimatedAmountOut.mul(new BN(95)).div(new BN(100)); // 5% slippage
 
-        const binArrays = await dlmmPool.getBinArrayForSwap(false);
+
+        // Swap quote
+const swapYtoX = true;
+const binArrays = await dlmmPool.getBinArrayForSwap(swapYtoX);
+
+const swapQuote = await dlmmPool.swapQuote(
+  amountIn,
+  swapYtoX,
+  new BN(1),
+  binArrays
+);
+
+// Swap
+const swapTx = await dlmmPool.swap({
+  inToken: dlmmPool.tokenX.publicKey,
+  binArraysPubkey: swapQuote.binArraysPubkey,
+  inAmount: swapAmount,
+  lbPair: dlmmPool.pubkey,
+  user: user.publicKey,
+  minOutAmount: swapQuote.minOutAmount,
+  outToken: dlmmPool.tokenY.publicKey,
+});
+
+/*
+        
+        const binArrays = await dlmmPool.getBinArrayForSwap(true);
         // Create the swap transaction
         const transaction = await dlmmPool.swap({
             user: OWNER.publicKey,
             inToken: MINT_Y,
             outToken: MINT_X,
             inAmount: amountIn,
-            minOutAmount: minAmountOut,
+            minOutAmount: new BN(0),
             lbPair: POOL,
             binArraysPubkey: binArrays.map(item => item.publicKey),
         });
+*/
 
+        /*
         // Sign and send the transaction
         const txid = await PROVIDER.sendAndConfirm(transaction, [OWNER]);
         console.log('DLMM Pool creation transaction sent. TXID:', txid);
         console.log('DLMM Pool creation successful!');
+        */
+       const res = await PROVIDER.simulate(transaction)
+       console.log(JSON.stringify(res, null, 2))
 
     } catch (error) {
         console.error('Error creating DLMM pool:', error);

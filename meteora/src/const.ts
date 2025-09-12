@@ -23,11 +23,11 @@ export const devnet = {
     Token2022ProgramId: TOKEN_2022_PROGRAM_ID,
     JupiterProgramId: new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4'),
     AssociatedTokenProgramId: ASSOCIATED_TOKEN_PROGRAM_ID,
-    MemeMint: new PublicKey('FfPCQ4fC5xV9PCq89EnjqLkJJJKSnzvqJEoifWpq9p3C'),
+    MemeMint: new PublicKey('5nJJuvEh2wBjPyEMQA8oV88yikRxFptZChkQAsS22tVN'),
     MemeDecimal: 9,
     BaseMint: new PublicKey('So11111111111111111111111111111111111111112'),
     BaseDecimal: 9,
-    POOL: new PublicKey('So11111111111111111111111111111111111111112'),
+    POOL: new PublicKey('hxwmFg9HJy21opUyzy1pBmYcWL8jp4U6iXi5BtEkMgA'),
     Owner: Keypair.fromSecretKey(bs58.decode("mtaSwRYTpiqAHNauXmwLBns4gq8MeLxsoYE1F6trpLVvZC31dpecztnKh4BD3L1iLFNcZeujTSZn3bggPFqWYDd")),
     User: Keypair.fromSecretKey(bs58.decode("3QWKhMFKaezHuRfREfaTAUDQ23fmRzcMxXQJVTesGvYnQg4wZmXUmHuem13JbqNv2yFnv72DvHVmebNDS5rqDCCx")),
 }

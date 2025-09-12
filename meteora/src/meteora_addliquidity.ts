@@ -31,8 +31,8 @@ async function addLiqudity() {
         const maxBinId = activeBin.binId + TOTAL_RANGE_INTERVAL;
 
         // The amounts you want to deposit (in lamports/smallest unit)
-        const totalXAmount = new BN(100000);
-        const totalYAmount = new BN(5000000);
+        const totalXAmount = new BN(1000000000);
+        const totalYAmount = new BN(1000000000);
 
         const newPositionKeypair = new Keypair();
 
